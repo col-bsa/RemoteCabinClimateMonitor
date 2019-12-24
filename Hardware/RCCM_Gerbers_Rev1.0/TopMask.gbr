@@ -1,9 +1,8 @@
-%TF.GenerationSoftware,Novarm,DipTrace,3.3.1.3*%
-%TF.CreationDate,2019-12-24T00:16:20-05:00*%
-%FSLAX26Y26*%
+G04 DipTrace 3.3.1.3*
+G04 TopMask.gbr*
 %MOIN*%
-%TF.FileFunction,Soldermask,Top*%
-%TF.Part,Single*%
+G04 #@! TF.FileFunction,Soldermask,Top*
+G04 #@! TF.Part,Single*
 %AMOUTLINE1*
 4,1,8,
 0.0585,0.024232,
@@ -37,8 +36,13 @@
 %ADD83R,0.059061X0.066935*%
 %ADD85R,0.066935X0.059061*%
 %ADD93OUTLINE1*%
+%FSLAX26Y26*%
+G04*
+G70*
+G90*
 G75*
 G01*
+G04 TopMask*
 %LPD*%
 D85*
 X781200Y1568700D3*

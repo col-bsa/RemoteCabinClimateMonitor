@@ -1,9 +1,8 @@
-%TF.GenerationSoftware,Novarm,DipTrace,3.3.1.3*%
-%TF.CreationDate,2019-12-24T00:16:21-05:00*%
-%FSLAX26Y26*%
+G04 DipTrace 3.3.1.3*
+G04 Top.gbr*
 %MOIN*%
-%TF.FileFunction,Copper,L1,Top*%
-%TF.Part,Single*%
+G04 #@! TF.FileFunction,Copper,L1,Top*
+G04 #@! TF.Part,Single*
 %AMOUTLINE0*
 4,1,8,
 0.05456,0.0226,
@@ -16,41 +15,46 @@
 0.0226,0.05456,
 0.05456,0.0226,
 0*%
-%TA.AperFunction,Conductor*%
+G04 #@! TA.AperFunction,Conductor*
 %ADD14C,0.012992*%
 %ADD15C,0.03*%
+G04 #@! TA.AperFunction,CopperBalancing*
 %ADD16C,0.013*%
+G04 #@! TA.AperFunction,Conductor*
 %ADD17C,0.015*%
-%TA.AperFunction,CopperBalancing*%
+G04 #@! TA.AperFunction,CopperBalancing*
 %ADD18C,0.025*%
 %ADD21R,0.059055X0.051181*%
 %ADD22R,0.051181X0.059055*%
-%TA.AperFunction,ComponentPad*%
+G04 #@! TA.AperFunction,ComponentPad*
 %ADD23R,0.059055X0.059055*%
 %ADD24C,0.059055*%
 %ADD26R,0.015748X0.05315*%
 %ADD27R,0.062992X0.055118*%
 %ADD28R,0.090551X0.051181*%
 %ADD29R,0.070866X0.074803*%
-%TA.AperFunction,ComponentPad*%
+G04 #@! TA.AperFunction,ComponentPad*
 %ADD30R,0.06378X0.06378*%
 %ADD31C,0.06378*%
 %ADD32R,0.133858X0.055118*%
 %ADD33R,0.122047X0.03937*%
 %ADD34R,0.096063X0.048425*%
 %ADD36R,0.041339X0.025591*%
-%TA.AperFunction,ComponentPad*%
+G04 #@! TA.AperFunction,ComponentPad*
 %ADD37C,0.075*%
 %ADD39R,0.017717X0.033465*%
 %ADD40R,0.070866X0.062992*%
-%TA.AperFunction,ViaPad*%
+G04 #@! TA.AperFunction,ViaPad*
 %ADD41C,0.04*%
-%TA.AperFunction,ComponentPad*%
+G04 #@! TA.AperFunction,ComponentPad*
 %ADD92OUTLINE0*%
-%TA.AperFunction,CopperBalancing*%
-%ADD95C,0.013*%
+%FSLAX26Y26*%
+G04*
+G70*
+G90*
 G75*
 G01*
+G04 Top*
 %LPD*%
 X2193700Y3093700D2*
 D14*
@@ -6544,7 +6548,7 @@ X589811Y2335132D1*
 X596032Y2331319D1*
 X601465Y2326687D1*
 X3131003Y3462192D2*
-D95*
+D16*
 Y3350208D1*
 Y3312192D2*
 Y3200208D1*

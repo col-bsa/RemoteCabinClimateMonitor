@@ -1,8 +1,0 @@
-#ifndef PIN_DEFINITIONS_H_
-#define PIN_DEFINITIONS_H_
-
-
-
-
-#endif // PIN_DEFINITIONS_H_
-

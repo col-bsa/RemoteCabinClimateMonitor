@@ -9,6 +9,8 @@
 // === STATIC CONFIGURATION ===
 #define FW_VERSION      	"0.0.1-IFM"
 
+#define INTERVAL_ENVIRONMENT_DATA_DELAY_MS      15000     // 15 Seconds
+
 
 // === PCB PINPOUT DEFINITIONS ===
 #define PIN_LIGHT_SEN     19  // Internal Light Sensor Signal (Analog)
@@ -47,18 +49,22 @@ Adafruit_Si7021 Si7021 = Adafruit_Si7021();     // Onboard I2C Temp & Humidity S
 FuelGauge       fuel;                           // Onboard Battery Fuel Gauge
 
 
-// === PROTOTYPES ===
-
+// === TIMERS ===
+Timer tCollectEnvironmentData(INTERVAL_ENVIRONMENT_DATA_DELAY_MS, timer_interval_environment_data);
 
 
 // === GLOBAL VARIABLES ===
-const String fwVersion = FW_VERSION;
+const String    sFwVersion                          = FW_VERSION;
+bool            bCollectIntervalEnvironmentData     = false;
 
 // Reasons to generate user alert.
 enum alertReasons {
     TEMP_LOW,
     TEMP_HIGH,
     TEMP_DELTA,
+    TEMP_CLEAR,
+    POWER_LOSS,
+    POWER_RESTORE,
     BATTERY_LOW,
     HEARTBEAT
 };
@@ -77,9 +83,6 @@ struct environmentData {
     int32_t     lightLevel;
 };
 
-struct environmentData currentEnvironmentData;
-struct environmentData lastEnvironmentData;
-
 
 // === PARTICLE CONFIGURATION ===
 //SYSTEM_MODE(SEMI_AUTOMATIC);
@@ -88,7 +91,7 @@ struct environmentData lastEnvironmentData;
 // 
 void setup() {
     // Particle Cloud Variable Registration
-    Particle.variable("fwVersion", fwVersion);
+    Particle.variable("sFwVersion", sFwVersion);
 
 
     // Particle Cloud Function Registration
@@ -139,10 +142,42 @@ void setup() {
 
 // 
 void loop() {
+    // Local Variable Declarations
+    struct environmentData environmentDataInterval;
+    struct environmentData environmentDataLastInterval;
 
-    //
-    collect_environment_data();
+    // Collect interval environment data.  (Timer flag based.)
+    if (bCollectIntervalEnvironmentData == true) {
+        // Store current data as last for delta based alert comparison.
+        environmentDataLastInterval = environmentDataInterval;
 
+        // Collect new data & reset timer flag.
+        environmentDataInterval = collect_environment_data();
+        bCollectIntervalEnvironmentData = false;
+    }
+
+    // Check for alert conditions.
+        // TEMP_LOW
+
+        // TEMP_HIGH
+
+        // TEMP_DELTA
+
+        // TEMP_CLEAR
+
+        // POWER_LOSS
+
+        // POWER_RESTORE
+
+        // BATTERY_LOW
+
+        // HEARTBEAT
+
+
+    // Report Changed Alert States
+
+
+    /*
     Serial.println("Time: ");
     Serial.println(currentEnvironmentData.time);
     Serial.println("Time Str: ");
@@ -164,38 +199,52 @@ void loop() {
 
     Serial.println("LightLevel: ");
     Serial.println(currentEnvironmentData.lightLevel);
-
     delay(10000);
-
+    */
 
 }   // END loop
 
 
+// 
+void publish_alert(void) {
+
+}   // END publish_alert
+
+
 //
-void collect_environment_data() {
-    // Save "current" data as "last" data.
-    lastEnvironmentData                     = currentEnvironmentData;
+void timer_interval_environment_data(void) {
+    bCollectIntervalEnvironmentData = true;
+}   // END timer_interval_environment_data
+
+
+
+struct environmentData collect_environment_data() {
+    // Local Variable Declarations
+    struct environmentData environmentDataReading;
 
     // Time
-    currentEnvironmentData.time             = Time.now();
-    currentEnvironmentData.timeString       = Time.timeStr();
-    currentEnvironmentData.timeValid        = Time.isValid();
+    environmentDataReading.time             = Time.now();
+    environmentDataReading.timeString       = Time.timeStr();
+    environmentDataReading.timeValid        = Time.isValid();
 
     // System Power
-    currentEnvironmentData.powerSource      = power_source_cast(System.powerSource());
-    currentEnvironmentData.batteryState     = battery_state_cast(System.batteryState());
-    currentEnvironmentData.batteryCharge    = System.batteryCharge();
+    environmentDataReading.powerSource      = power_source_cast(System.powerSource());
+    environmentDataReading.batteryState     = battery_state_cast(System.batteryState());
+    environmentDataReading.batteryCharge    = System.batteryCharge();
 
     // Temperature & Humidity
-    currentEnvironmentData.temperatureF     = C_TO_F(Si7021.readTemperature());
-    currentEnvironmentData.humidity         = Si7021.readHumidity();
+    environmentDataReading.temperatureF     = C_TO_F(Si7021.readTemperature());
+    environmentDataReading.humidity         = Si7021.readHumidity();
 
     // Light Level
-    currentEnvironmentData.lightLevel       = analogRead(PIN_LIGHT_SEN);
+    environmentDataReading.lightLevel       = analogRead(PIN_LIGHT_SEN);
 
+    // Return Sensor Data
+    return environmentDataReading;
 }   // END collect_environment_data
 
 
+//
 String power_source_cast(int intPowerSource) {
     // https://docs.particle.io/cards/firmware/system-calls/powersource/
 

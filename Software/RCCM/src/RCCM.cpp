@@ -15,10 +15,20 @@
 // === STATIC CONFIGURATION ===
 void setup();
 void loop();
-void collect_environment_data();
+void publish_alert(void);
+void timer_interval_environment_data(void);
+void collect_environment_data(void);
 String power_source_cast(int intPowerSource);
+String battery_state_cast(int intBatteryState);
 #line 10 "/home/zach/GitHub/RemoteCabinClimateMonitor/Software/RCCM/src/RCCM.ino"
 #define FW_VERSION      	"0.0.1-IFM"
+
+#define INTERVAL_ENVIRONMENT_DATA_DELAY_MS      15000     // 15 Seconds
+
+#define THRESH_TEMP_LOW     35
+#define THRESH_TEMP_HIGH    95
+#define THRESH_TEMP_DELTA   0.2
+#define THRESH_BATT_LOW     10
 
 
 // === PCB PINPOUT DEFINITIONS ===
@@ -58,22 +68,22 @@ Adafruit_Si7021 Si7021 = Adafruit_Si7021();     // Onboard I2C Temp & Humidity S
 FuelGauge       fuel;                           // Onboard Battery Fuel Gauge
 
 
-// === PROTOTYPES ===
+// === TIMERS ===
+Timer tCollectEnvironmentData(INTERVAL_ENVIRONMENT_DATA_DELAY_MS, timer_interval_environment_data);    
 
 
-
-// === GLOBAL VARIABLES ===
-const String fwVersion = FW_VERSION;
-
+// === GLOBAL STRUCT / ENUM DEFINITIONS ===
 // Reasons to generate user alert.
-enum alertReasons {
-    TEMP_LOW,
-    TEMP_HIGH,
-    TEMP_DELTA,
-    BATTERY_LOW,
-    HEARTBEAT
+struct alertList {
+    bool bTempLow;
+    bool bTempHigh;
+    bool bTempDelta;
+    bool bTempClear;
+    bool bPowerLoss;
+    bool bPowerRestore;
+    bool bBatteryLow;
+    bool bHeartbeat;
 };
-enum alertReasons alertReason;
 
 // Environmental Data Collected
 struct environmentData {
@@ -82,14 +92,25 @@ struct environmentData {
     bool        timeValid;
     float       batteryCharge;
     int32_t     batteryState;
-    String      powerSource;
+    int32_t     powerSource;
     float       temperatureF;
     float       humidity;    
     int32_t     lightLevel;
 };
 
-struct environmentData currentEnvironmentData;
-struct environmentData lastEnvironmentData;
+
+// === GLOBAL VARIABLES ===
+const String    sFwVersion                          = FW_VERSION;
+bool            bCollectIntervalEnvironmentData     = false;
+float           fThreshTempLow                      = THRESH_TEMP_LOW;
+float           fThreshTempHigh                     = THRESH_TEMP_HIGH;
+float           fThreshTempDelta                    = THRESH_TEMP_DELTA;
+bool            bCurrentTempAlert                   = false;
+float           fThreshBattLow                      = THRESH_BATT_LOW;
+struct environmentData  environmentDataInterval;
+struct environmentData  environmentDataLastInterval;
+struct alertList        activeAlertsInterval;
+struct alertList        activeAlertsLastInterval;    
 
 
 // === PARTICLE CONFIGURATION ===
@@ -99,7 +120,7 @@ struct environmentData lastEnvironmentData;
 // 
 void setup() {
     // Particle Cloud Variable Registration
-    Particle.variable("fwVersion", fwVersion);
+    Particle.variable("sFwVersion", sFwVersion);
 
 
     // Particle Cloud Function Registration
@@ -150,10 +171,96 @@ void setup() {
 
 // 
 void loop() {
+    // Local Variable Declarations
+    float fTempDelta;          
 
-    //
-    collect_environment_data();
+    // Collect interval environment data.  (Timer flag based.)
+    if (bCollectIntervalEnvironmentData == true) {
+        // Store current data as last for delta based alert comparison.
+        environmentDataLastInterval = environmentDataInterval;
 
+        // Collect New Data
+        collect_environment_data();
+
+        // Generate Alerts Based On New Data
+            // Store current data as last for delta based alert comparison.
+            activeAlertsLastInterval = activeAlertsInterval;
+
+            // TEMP_LOW
+            if (environmentDataInterval.temperatureF < fThreshTempLow) {
+                // Clear TEMP_CLEAR alert.
+                activeAlertsInterval.bTempClear = false;
+
+                // Set TEMP_LOW alert.
+                activeAlertsInterval.bTempLow = true;
+            }
+
+            // TEMP_HIGH
+            if (environmentDataInterval.temperatureF > fThreshTempHigh) {
+                // Clear TEMP_CLEAR alert.
+                activeAlertsInterval.bTempClear = false;
+
+                // Set TEMP_HIGH alert.
+                activeAlertsInterval.bTempHigh = true;
+            }
+
+            // TEMP_DELTA
+            fTempDelta = (environmentDataInterval.temperatureF / environmentDataLastInterval.temperatureF);
+            fTempDelta = abs(fTempDelta);
+            if (fTempDelta > fThreshTempDelta) {
+                // Set TEMP_DELTA alert.
+                activeAlertsInterval.bTempDelta = true;
+            }
+
+            // TEMP_CLEAR
+            // (Dependent on TEMP_LOW & TEMP_HIGH alert evaluation logic occurring first.)
+            // Temp Alert Currently False...
+            if ((activeAlertsInterval.bTempLow == false) && (activeAlertsInterval.bTempHigh == false)) {            
+                // ...AND Temp Alert WAS True
+                if ((activeAlertsLastInterval.bTempLow == true) || (activeAlertsLastInterval.bTempHigh == true)) {
+                    // Set TEMP_CLEAR alert.
+                    activeAlertsInterval.bTempClear = true;
+                }
+            }
+
+            // POWER_LOSS
+            if ((environmentDataInterval.powerSource == POWER_SOURCE_BATTERY) || (environmentDataInterval.powerSource == POWER_SOURCE_UNKNOWN)) {
+                // Clear POWER_RESTORE alert.
+                activeAlertsInterval.bPowerRestore = false;
+
+                // Set POWER_LOSS alert.
+                activeAlertsInterval.bPowerLoss = true;
+            }
+
+            // POWER_RESTORE
+            // (Dependent on POWER_LOSS alert evaluation logic occurring first.)
+            // Power Loss Alert Currently False...
+            if (activeAlertsInterval.bPowerLoss == false) {
+                // ...AND Power Loss Alert WAS True
+                if (activeAlertsLastInterval.bPowerLoss == true) {
+                    // Set POWER_RESTORE alert.
+                    activeAlertsInterval.bPowerRestore = true;
+                }
+            }
+
+            // BATTERY_LOW
+            if (environmentDataInterval.batteryCharge < fThreshBattLow) {
+                // Set BATTERY_LOW alert.
+                activeAlertsInterval.bBatteryLow = true;
+            }
+
+            // HEARTBEAT
+
+
+        // Reset Collect Flag
+        bCollectIntervalEnvironmentData = false;
+    }
+
+
+    // Process Alerts
+
+
+    /*
     Serial.println("Time: ");
     Serial.println(currentEnvironmentData.time);
     Serial.println("Time Str: ");
@@ -175,38 +282,54 @@ void loop() {
 
     Serial.println("LightLevel: ");
     Serial.println(currentEnvironmentData.lightLevel);
-
     delay(10000);
-
+    */
 
 }   // END loop
 
 
+// 
+void publish_alert(void) {
+
+}   // END publish_alert
+
+
 //
-void collect_environment_data() {
-    // Save "current" data as "last" data.
-    lastEnvironmentData                     = currentEnvironmentData;
+void timer_interval_environment_data(void) {
+    bCollectIntervalEnvironmentData = true;
+}   // END timer_interval_environment_data
+
+
+
+void collect_environment_data(void) {
+    // Local Variable Declarations
+    struct environmentData environmentDataReading;
 
     // Time
-    currentEnvironmentData.time             = Time.now();
-    currentEnvironmentData.timeString       = Time.timeStr();
-    currentEnvironmentData.timeValid        = Time.isValid();
+    environmentDataReading.time             = Time.now();
+    environmentDataReading.timeString       = Time.timeStr();
+    environmentDataReading.timeValid        = Time.isValid();
 
     // System Power
-    currentEnvironmentData.powerSource      = power_source_cast(System.powerSource());
-    currentEnvironmentData.batteryState     = System.batteryState();
-    currentEnvironmentData.batteryCharge    = System.batteryCharge();
+    environmentDataReading.powerSource      = System.powerSource();
+    environmentDataReading.batteryState     = System.batteryState();
+    environmentDataReading.batteryCharge    = System.batteryCharge();
 
     // Temperature & Humidity
-    currentEnvironmentData.temperatureF     = C_TO_F(Si7021.readTemperature());
-    currentEnvironmentData.humidity         = Si7021.readHumidity();
+    environmentDataReading.temperatureF     = C_TO_F(Si7021.readTemperature());
+    environmentDataReading.humidity         = Si7021.readHumidity();
 
     // Light Level
-    currentEnvironmentData.lightLevel       = analogRead(PIN_LIGHT_SEN);
+    environmentDataReading.lightLevel       = analogRead(PIN_LIGHT_SEN);
+
+    // Save Last Interval Reading & Save New Data
+    environmentDataLastInterval = environmentDataInterval;
+    environmentDataInterval = environmentDataReading;
 
 }   // END collect_environment_data
 
 
+//
 String power_source_cast(int intPowerSource) {
     // https://docs.particle.io/cards/firmware/system-calls/powersource/
 
@@ -240,3 +363,42 @@ String power_source_cast(int intPowerSource) {
 
     return strPowerSource;
 }   // END power_source_cast
+
+
+String battery_state_cast(int intBatteryState) {
+    // https://docs.particle.io/cards/firmware/system-calls/batterystate/
+
+    String strBatteryState = "NONE_ERR";
+
+    switch (intBatteryState) {
+        case BATTERY_STATE_UNKNOWN:         // 0
+        strBatteryState = "BATTERY_STATE_UNKNOWN";
+        break;
+
+        case BATTERY_STATE_NOT_CHARGING:    // 1
+        strBatteryState = "BATTERY_STATE_NOT_CHARGING";
+        break;
+
+        case BATTERY_STATE_CHARGING:        // 2
+        strBatteryState = "BATTERY_STATE_CHARGING";
+        break;
+
+        case BATTERY_STATE_CHARGED:         // 3
+        strBatteryState = "BATTERY_STATE_CHARGED";
+        break;
+
+        case BATTERY_STATE_DISCHARGING:     // 4
+        strBatteryState = "BATTERY_STATE_DISCHARGING";
+        break;
+
+        case BATTERY_STATE_FAULT:           // 5
+        strBatteryState = "BATTERY_STATE_FAULT";
+        break;
+
+        case BATTERY_STATE_DISCONNECTED:    // 6
+        strBatteryState = "BATTERY_STATE_DISCONNECTED";
+        break;
+    }
+
+    return strBatteryState;
+}

@@ -76,11 +76,11 @@ struct environmentData {
     long        time;
     String      timeString;
     bool        timeValid;
-    float       batteryCharge;
+    double      batteryCharge;
     int32_t     batteryState;
     int32_t     powerSource;
-    float       temperatureF;
-    float       humidity;    
+    double      temperatureF;
+    double      humidity;    
     int32_t     lightLevel;
 };
 
@@ -107,10 +107,18 @@ struct alertList        activeAlertsLastInterval;
 void setup() {
     // Particle Cloud Variable Registration
     Particle.variable("sFwVersion", sFwVersion);
-
+    Particle.variable("battCharge", environmentDataInterval.batteryCharge);
+    Particle.variable("battState", environmentDataInterval.batteryState);
+    Particle.variable("humidity", environmentDataInterval.humidity);
+    Particle.variable("lightLevel", environmentDataInterval.lightLevel);
+    Particle.variable("pwrSrc", environmentDataInterval.powerSource);
+    Particle.variable("tempF", environmentDataInterval.temperatureF);
+    Particle.variable("time", environmentDataInterval.time);
+    Particle.variable("timeStr", environmentDataInterval.timeString);
+    Particle.variable("timeVal", environmentDataInterval.timeValid);
 
     // Particle Cloud Function Registration
-
+    Particle.function("collect_environment_data", collect_environment_data);
 
     // I/O
         // Internal Sensor Expansion
@@ -166,7 +174,7 @@ void loop() {
         environmentDataLastInterval = environmentDataInterval;
 
         // Collect New Data
-        collect_environment_data();
+        collect_environment_data("Garbage");
 
         // Generate Alerts Based On New Data
             // Store current data as last for delta based alert comparison.
@@ -287,7 +295,7 @@ void timer_interval_environment_data(void) {
 
 
 
-void collect_environment_data(void) {
+int collect_environment_data(String junk) {
     // Local Variable Declarations
     struct environmentData environmentDataReading;
 
@@ -311,6 +319,9 @@ void collect_environment_data(void) {
     // Save Last Interval Reading & Save New Data
     environmentDataLastInterval = environmentDataInterval;
     environmentDataInterval = environmentDataReading;
+
+    // Return Current Temperature (cast to int)
+    return (int)environmentDataReading.temperatureF;
 
 }   // END collect_environment_data
 

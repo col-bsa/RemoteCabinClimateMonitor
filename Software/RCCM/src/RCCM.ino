@@ -7,7 +7,7 @@
 
 
 // === STATIC CONFIGURATION ===
-#define FW_VERSION      	"0.0.1-IFM"
+#define FW_VERSION      	"0.0.1-IFM_DEV"
 
 #define INTERVAL_ENVIRONMENT_DATA_DELAY_MS      15000     // 15 Seconds
 
@@ -15,6 +15,9 @@
 #define THRESH_TEMP_HIGH    95
 #define THRESH_TEMP_DELTA   0.2
 #define THRESH_BATT_LOW     10
+
+#define INTERNAL_COLLECTION_INTERVAL    (60*1)             // 1 Minutes
+#define HEARTBEAT_INTERNAL              (60*60*24)          // 1 Day
 
 
 // === PCB PINPOUT DEFINITIONS ===
@@ -159,6 +162,9 @@ void setup() {
     // Local Temp & Humidity Sensor
     Si7021.begin();
 
+    // Ephemeral Debug Log Message
+    Particle.publish("RCCM_Debug: Setup Function");
+
 
 }   // END setup
 
@@ -166,15 +172,30 @@ void setup() {
 // 
 void loop() {
     // Local Variable Declarations
-    float fTempDelta;          
+    float fTempDelta;
+    static long  lLastDataCollectTime = 0;
+    static long  lLastHeartbeatTime   = 0;
 
+
+    // === TASK SCHEDULING ===
+    if (Time.now() >= (lLastDataCollectTime + INTERNAL_COLLECTION_INTERVAL)) {
+        lLastDataCollectTime = Time.now();
+        bCollectIntervalEnvironmentData = true;
+
+    }
+
+
+    // === TASK ===
     // Collect interval environment data.  (Timer flag based.)
     if (bCollectIntervalEnvironmentData == true) {
+        // Ephemeral Debug Log Message
+        Particle.publish("RCCM_Debug: Collect Internal Environment Data");
+
         // Store current data as last for delta based alert comparison.
         environmentDataLastInterval = environmentDataInterval;
 
         // Collect New Data
-        collect_environment_data("Garbage");
+        collect_environment_data(" ");
 
         // Generate Alerts Based On New Data
             // Store current data as last for delta based alert comparison.
@@ -201,7 +222,8 @@ void loop() {
             // TEMP_DELTA
             fTempDelta = (environmentDataInterval.temperatureF / environmentDataLastInterval.temperatureF);
             fTempDelta = abs(fTempDelta);
-            if (fTempDelta > fThreshTempDelta) {
+            // TODO: Initialize temp values to non-zero for first run detection.
+            if ((fTempDelta > fThreshTempDelta) && (environmentDataLastInterval.temperatureF != 0)) {
                 // Set TEMP_DELTA alert.
                 activeAlertsInterval.bTempDelta = true;
             }
@@ -223,6 +245,7 @@ void loop() {
                 activeAlertsInterval.bPowerRestore = false;
 
                 // Set POWER_LOSS alert.
+                // TODO: Debounce?
                 activeAlertsInterval.bPowerLoss = true;
             }
 
@@ -244,6 +267,9 @@ void loop() {
             }
 
             // HEARTBEAT
+            if ((Time.now() >= (lLastHeartbeatTime + HEARTBEAT_INTERNAL)) && (lLastHeartbeatTime != 0)) {
+                activeAlertsInterval.bHeartbeat = true;
+            }
 
 
         // Reset Collect Flag
@@ -251,7 +277,104 @@ void loop() {
     }
 
 
-    // Process Alerts
+    // === PROCESS ALERTS ===
+        // TEMP_LOW
+        if (activeAlertsInterval.bTempLow == true) {
+            // Publish Alert
+            Particle.publish("RCCM_Alert: TEMP_LOW");
+
+            // Clear Alert
+            activeAlertsInterval.bTempLow = false;
+
+            // Throttle Alert Publishing
+            delay(1000);
+        }
+
+        // TEMP_HIGH
+        if (activeAlertsInterval.bTempHigh == true) {
+            // Publish Alert
+            Particle.publish("RCCM_Alert: TEMP_HIGH");
+
+            // Clear Alert
+            activeAlertsInterval.bTempHigh = false;
+
+            // Throttle Alert Publishing
+            delay(1000);
+        }
+
+        // TEMP_DELTA
+        if (activeAlertsInterval.bTempDelta == true) {
+            // Publish Alert
+            Particle.publish("RCCM_Alert: TEMP_DELTA");
+
+            // Clear Alert
+            activeAlertsInterval.bTempDelta = false;
+
+            // Throttle Alert Publishing
+            delay(1000);
+        }
+
+        // TEMP_CLEAR
+        if (activeAlertsInterval.bTempClear == true) {
+            // Publish Alert
+            Particle.publish("RCCM_Alert: TEMP_CLEAR");
+
+            // Clear Alert
+            activeAlertsInterval.bTempClear = false;
+
+            // Throttle Alert Publishing
+            delay(1000);
+        }
+
+        // POWER_LOSS
+        if (activeAlertsInterval.bPowerLoss == true) {
+            // Publish Alert
+            Particle.publish("RCCM_Alert: POWER_LOSS");
+
+            // Clear Alert
+            activeAlertsInterval.bPowerLoss = false;
+
+            // Throttle Alert Publishing
+            delay(1000);
+        }
+
+        // POWER_RESTORE
+        if (activeAlertsInterval.bPowerRestore == true) {
+            // Publish Alert
+            Particle.publish("RCCM_Alert: POWER_RESTORE");
+
+            // Clear Alert
+            activeAlertsInterval.bPowerRestore = false;
+
+            // Throttle Alert Publishing
+            delay(1000);            
+        }
+
+        // BATTERY_LOW
+        if (activeAlertsInterval.bBatteryLow == true) {
+            // Publish Alert
+            Particle.publish("RCCM_Alert: BATTERY_LOW");
+
+            // Clear Alert
+            activeAlertsInterval.bBatteryLow = false;
+
+            // Throttle Alert Publishing
+            delay(1000);
+        }
+
+        // HEARTBEAT
+        if (activeAlertsInterval.bHeartbeat == true) {
+            // Publish Alert
+            Particle.publish("RCCM_Alert: HEARTBEAT");
+
+            // Clear Alert
+            activeAlertsInterval.bHeartbeat = false;
+
+            // Throttle Alert Publishing
+            delay(1000);
+        }
+
+
 
 
     /*

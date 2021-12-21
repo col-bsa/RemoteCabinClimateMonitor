@@ -17,7 +17,9 @@
 #define THRESH_BATT_LOW     10
 
 #define INTERNAL_COLLECTION_INTERVAL    (60*1)             // 1 Minutes
-#define HEARTBEAT_INTERNAL              (60*60*24)          // 1 Day
+#define HEARTBEAT_INTERNAL              (60*60*24)         // 1 Day
+
+#define ALERT_THROTTLE_DELAY            1000               // ms
 
 
 // === PCB PINPOUT DEFINITIONS ===
@@ -49,6 +51,7 @@
 // === INCLUDES ===
 #include <DataLog.h>
 #include <Adafruit_Si7021.h>
+#include <JsonParserGeneratorRK.h>
 
 
 // === GLOBAL OBJECTS ===
@@ -165,6 +168,27 @@ void setup() {
     // Ephemeral Debug Log Message
     Particle.publish("RCCM_Debug: Setup Function");
 
+    // Throttle Alert Publishing
+    delay(ALERT_THROTTLE_DELAY);
+
+    // SMS Setup From Device Test / Proof Of Concept
+    // JSON Writer Example: https://github.com/rickkas7/JsonParserGeneratorRK/blob/master/examples/2-generator/2-generator-JsonParserGeneratorRK.cpp
+    // {{Moustache}} templates used to populate To/From/Body form fields in Twilio API call.
+    JsonWriterStatic<256> jw;
+    {
+        JsonWriterAutoObject obj(&jw);
+
+        jw.insertKeyValue("SMS_TO", "[REDACTED]");
+        jw.insertKeyValue("SMS_FROM", "[REDACTED]");
+        jw.insertKeyValue("SMS_BODY", "RCCM_Alert: Device Boot Hello World!");
+    }
+
+    Particle.publish("twilio_sms_test", jw.getBuffer());
+
+    // Throttle Alert Publishing
+    delay(ALERT_THROTTLE_DELAY);
+
+
 
 }   // END setup
 
@@ -209,6 +233,10 @@ void loop() {
                 // Set TEMP_LOW alert.
                 activeAlertsInterval.bTempLow = true;
             }
+            else
+            {
+                activeAlertsInterval.bTempLow = false;
+            }
 
             // TEMP_HIGH
             if (environmentDataInterval.temperatureF > fThreshTempHigh) {
@@ -218,15 +246,13 @@ void loop() {
                 // Set TEMP_HIGH alert.
                 activeAlertsInterval.bTempHigh = true;
             }
+            else 
+            {
+                activeAlertsInterval.bTempHigh = false;
+            }
 
             // TEMP_DELTA
-            fTempDelta = (environmentDataInterval.temperatureF / environmentDataLastInterval.temperatureF);
-            fTempDelta = abs(fTempDelta);
-            // TODO: Initialize temp values to non-zero for first run detection.
-            if ((fTempDelta > fThreshTempDelta) && (environmentDataLastInterval.temperatureF != 0)) {
-                // Set TEMP_DELTA alert.
-                activeAlertsInterval.bTempDelta = true;
-            }
+            // TODO: Consider how / if to do this, given deep sleep plans.
 
             // TEMP_CLEAR
             // (Dependent on TEMP_LOW & TEMP_HIGH alert evaluation logic occurring first.)
@@ -238,6 +264,10 @@ void loop() {
                     activeAlertsInterval.bTempClear = true;
                 }
             }
+            else 
+            {
+                activeAlertsInterval.bTempClear = false;
+            }
 
             // POWER_LOSS
             if ((environmentDataInterval.powerSource == POWER_SOURCE_BATTERY) || (environmentDataInterval.powerSource == POWER_SOURCE_UNKNOWN)) {
@@ -247,6 +277,10 @@ void loop() {
                 // Set POWER_LOSS alert.
                 // TODO: Debounce?
                 activeAlertsInterval.bPowerLoss = true;
+            }
+            else
+            {
+                activeAlertsInterval.bPowerLoss = false;
             }
 
             // POWER_RESTORE
@@ -259,16 +293,28 @@ void loop() {
                     activeAlertsInterval.bPowerRestore = true;
                 }
             }
+            else
+            {
+                activeAlertsInterval.bPowerRestore = false;
+            }
 
             // BATTERY_LOW
             if (environmentDataInterval.batteryCharge < fThreshBattLow) {
                 // Set BATTERY_LOW alert.
                 activeAlertsInterval.bBatteryLow = true;
             }
+            else
+            {
+                activeAlertsInterval.bBatteryLow = false;
+            }
 
             // HEARTBEAT
             if ((Time.now() >= (lLastHeartbeatTime + HEARTBEAT_INTERNAL)) && (lLastHeartbeatTime != 0)) {
                 activeAlertsInterval.bHeartbeat = true;
+            }
+            else
+            {
+                activeAlertsInterval.bHeartbeat = false;
             }
 
 
@@ -278,16 +324,31 @@ void loop() {
 
 
     // === PROCESS ALERTS ===
+    // NOTE: These don't mute, and will happily report every time the "task" runs.  Right now that's by design, but may need to get smarter later.
+
+        // This creates a buffer to hold up to 256 bytes of JSON data (good for Particle.publish)
+        // (Used repeatedly for each sequential alert publish.)
+	    JsonWriterStatic<256> jw;
+
         // TEMP_LOW
         if (activeAlertsInterval.bTempLow == true) {
             // Publish Alert
-            Particle.publish("RCCM_Alert: TEMP_LOW");
+            {
+                //JsonWriterAutoObject obj(&jw);
+
+                //jw.insertKeyValue("SMS_TO", "2157037572");
+                //jw.insertKeyValue("SMS_FROM", "5705768151");
+                //jw.insertKeyValue("SMS_BODY", "RCCM_Alert: TEMP_LOW");
+                
+                //Particle.publish(jw.getBuffer());
+            }
+            
 
             // Clear Alert
             activeAlertsInterval.bTempLow = false;
 
             // Throttle Alert Publishing
-            delay(1000);
+            delay(ALERT_THROTTLE_DELAY);
         }
 
         // TEMP_HIGH
@@ -299,7 +360,7 @@ void loop() {
             activeAlertsInterval.bTempHigh = false;
 
             // Throttle Alert Publishing
-            delay(1000);
+            delay(ALERT_THROTTLE_DELAY);
         }
 
         // TEMP_DELTA
@@ -311,7 +372,7 @@ void loop() {
             activeAlertsInterval.bTempDelta = false;
 
             // Throttle Alert Publishing
-            delay(1000);
+            delay(ALERT_THROTTLE_DELAY);
         }
 
         // TEMP_CLEAR
@@ -323,7 +384,7 @@ void loop() {
             activeAlertsInterval.bTempClear = false;
 
             // Throttle Alert Publishing
-            delay(1000);
+            delay(ALERT_THROTTLE_DELAY);
         }
 
         // POWER_LOSS
@@ -335,7 +396,7 @@ void loop() {
             activeAlertsInterval.bPowerLoss = false;
 
             // Throttle Alert Publishing
-            delay(1000);
+            delay(ALERT_THROTTLE_DELAY);
         }
 
         // POWER_RESTORE
@@ -347,7 +408,7 @@ void loop() {
             activeAlertsInterval.bPowerRestore = false;
 
             // Throttle Alert Publishing
-            delay(1000);            
+            delay(ALERT_THROTTLE_DELAY);            
         }
 
         // BATTERY_LOW
@@ -359,7 +420,7 @@ void loop() {
             activeAlertsInterval.bBatteryLow = false;
 
             // Throttle Alert Publishing
-            delay(1000);
+            delay(ALERT_THROTTLE_DELAY);
         }
 
         // HEARTBEAT
@@ -371,36 +432,9 @@ void loop() {
             activeAlertsInterval.bHeartbeat = false;
 
             // Throttle Alert Publishing
-            delay(1000);
+            delay(ALERT_THROTTLE_DELAY);
         }
 
-
-
-
-    /*
-    Serial.println("Time: ");
-    Serial.println(currentEnvironmentData.time);
-    Serial.println("Time Str: ");
-    Serial.println(currentEnvironmentData.timeString);
-    Serial.println("Time IsValid: ");
-    Serial.println(currentEnvironmentData.timeValid);
-
-    Serial.println("Power Source: ");
-    Serial.println(currentEnvironmentData.powerSource);
-    Serial.println("Battery State: ");
-    Serial.println(currentEnvironmentData.batteryState);
-    Serial.println("Battery Charge: ");
-    Serial.println(currentEnvironmentData.batteryCharge);
-
-    Serial.println("Temperature: ");
-    Serial.println(currentEnvironmentData.temperatureF);
-    Serial.println("Humidity: ");
-    Serial.println(currentEnvironmentData.humidity);
-
-    Serial.println("LightLevel: ");
-    Serial.println(currentEnvironmentData.lightLevel);
-    delay(10000);
-    */
 
 }   // END loop
 

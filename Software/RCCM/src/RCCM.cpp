@@ -15,20 +15,26 @@
 // === STATIC CONFIGURATION ===
 void setup();
 void loop();
-void publish_alert(void);
+int publish_alert(String alertType);
 void timer_interval_environment_data(void);
-void collect_environment_data(void);
+int collect_environment_data(String junk);
 String power_source_cast(int intPowerSource);
 String battery_state_cast(int intBatteryState);
 #line 10 "/home/zach/GitHub/RemoteCabinClimateMonitor/Software/RCCM/src/RCCM.ino"
-#define FW_VERSION      	"0.0.1-IFM"
+#define FW_VERSION      	"0.1.0"
 
-#define INTERVAL_ENVIRONMENT_DATA_DELAY_MS      15000     // 15 Seconds
+// Timer; not currently in use.
+#define INTERVAL_ENVIRONMENT_DATA_DELAY_MS      15000     // 15 Seconds 
 
-#define THRESH_TEMP_LOW     35
+#define THRESH_TEMP_LOW     40
 #define THRESH_TEMP_HIGH    95
 #define THRESH_TEMP_DELTA   0.2
-#define THRESH_BATT_LOW     10
+#define THRESH_BATT_LOW     25
+
+#define INTERNAL_COLLECTION_INTERVAL    (60*15)            // 15 Minutes
+#define HEARTBEAT_INTERNAL              (60*60*24)         // 1 Day
+
+#define ALERT_THROTTLE_DELAY            1010               // ms
 
 
 // === PCB PINPOUT DEFINITIONS ===
@@ -60,6 +66,9 @@ String battery_state_cast(int intBatteryState);
 // === INCLUDES ===
 #include <DataLog.h>
 #include <Adafruit_Si7021.h>
+#include <JsonParserGeneratorRK.h>
+#include <LocalTimeRK.h>
+#include "secrets.h"
 
 
 // === GLOBAL OBJECTS ===
@@ -90,11 +99,11 @@ struct environmentData {
     long        time;
     String      timeString;
     bool        timeValid;
-    float       batteryCharge;
+    double      batteryCharge;
     int32_t     batteryState;
     int32_t     powerSource;
-    float       temperatureF;
-    float       humidity;    
+    double      temperatureF;
+    double      humidity;    
     int32_t     lightLevel;
 };
 
@@ -110,7 +119,7 @@ float           fThreshBattLow                      = THRESH_BATT_LOW;
 struct environmentData  environmentDataInterval;
 struct environmentData  environmentDataLastInterval;
 struct alertList        activeAlertsInterval;
-struct alertList        activeAlertsLastInterval;    
+struct alertList        activeAlertsLastInterval;
 
 
 // === PARTICLE CONFIGURATION ===
@@ -121,10 +130,19 @@ struct alertList        activeAlertsLastInterval;
 void setup() {
     // Particle Cloud Variable Registration
     Particle.variable("sFwVersion", sFwVersion);
-
+    Particle.variable("battCharge", environmentDataInterval.batteryCharge);
+    Particle.variable("battState", environmentDataInterval.batteryState);
+    Particle.variable("humidity", environmentDataInterval.humidity);
+    Particle.variable("lightLevel", environmentDataInterval.lightLevel);
+    Particle.variable("pwrSrc", environmentDataInterval.powerSource);
+    Particle.variable("tempF", environmentDataInterval.temperatureF);
+    Particle.variable("time", environmentDataInterval.time);
+    Particle.variable("timeStr", environmentDataInterval.timeString);
+    Particle.variable("timeVal", environmentDataInterval.timeValid);
 
     // Particle Cloud Function Registration
-
+    Particle.function("collect_environment_data", collect_environment_data);
+    Particle.function("publish_alert", publish_alert);
 
     // I/O
         // Internal Sensor Expansion
@@ -162,9 +180,20 @@ void setup() {
     Serial.println("=== REMOTE CABIN CLIMATE MONITOR ===");
     Serial.println(FW_VERSION);
 
+    // Set time zone to Eastern USA daylight saving time
+    Time.zone(-4);
+    // (https://docs.particle.io/cards/libraries/l/LocalTimeRK/), does not modify base Time class timezone!
+    LocalTime::instance().withConfig(LocalTimePosixTimezone("EST5EDT,M3.2.0/2:00:00,M11.1.0/2:00:00"));
+
     // Local Temp & Humidity Sensor
     Si7021.begin();
 
+    // Ephemeral Debug Log Message
+    Particle.publish("RCCM_Debug: Setup Function");
+    
+    // Publish Startup Alert
+    collect_environment_data(" ");
+    publish_alert("SYS_STARTUP");
 
 }   // END setup
 
@@ -172,15 +201,30 @@ void setup() {
 // 
 void loop() {
     // Local Variable Declarations
-    float fTempDelta;          
+    //float fTempDelta;
+    static long  lLastDataCollectTime = 0;
+    static long  lLastHeartbeatTime   = 0;
 
+
+    // === TASK SCHEDULING ===
+    if (Time.now() >= (lLastDataCollectTime + INTERNAL_COLLECTION_INTERVAL)) {
+        lLastDataCollectTime = Time.now();
+        bCollectIntervalEnvironmentData = true;
+
+    }
+
+
+    // === TASK ===
     // Collect interval environment data.  (Timer flag based.)
     if (bCollectIntervalEnvironmentData == true) {
+        // Ephemeral Debug Log Message
+        Particle.publish("RCCM_Debug: Collect Internal Environment Data");
+
         // Store current data as last for delta based alert comparison.
         environmentDataLastInterval = environmentDataInterval;
 
         // Collect New Data
-        collect_environment_data();
+        collect_environment_data(" ");
 
         // Generate Alerts Based On New Data
             // Store current data as last for delta based alert comparison.
@@ -194,6 +238,10 @@ void loop() {
                 // Set TEMP_LOW alert.
                 activeAlertsInterval.bTempLow = true;
             }
+            else
+            {
+                activeAlertsInterval.bTempLow = false;
+            }
 
             // TEMP_HIGH
             if (environmentDataInterval.temperatureF > fThreshTempHigh) {
@@ -203,14 +251,13 @@ void loop() {
                 // Set TEMP_HIGH alert.
                 activeAlertsInterval.bTempHigh = true;
             }
+            else 
+            {
+                activeAlertsInterval.bTempHigh = false;
+            }
 
             // TEMP_DELTA
-            fTempDelta = (environmentDataInterval.temperatureF / environmentDataLastInterval.temperatureF);
-            fTempDelta = abs(fTempDelta);
-            if (fTempDelta > fThreshTempDelta) {
-                // Set TEMP_DELTA alert.
-                activeAlertsInterval.bTempDelta = true;
-            }
+            // TODO: Consider how / if to do this, given deep sleep plans.
 
             // TEMP_CLEAR
             // (Dependent on TEMP_LOW & TEMP_HIGH alert evaluation logic occurring first.)
@@ -222,6 +269,10 @@ void loop() {
                     activeAlertsInterval.bTempClear = true;
                 }
             }
+            else 
+            {
+                activeAlertsInterval.bTempClear = false;
+            }
 
             // POWER_LOSS
             if ((environmentDataInterval.powerSource == POWER_SOURCE_BATTERY) || (environmentDataInterval.powerSource == POWER_SOURCE_UNKNOWN)) {
@@ -229,7 +280,12 @@ void loop() {
                 activeAlertsInterval.bPowerRestore = false;
 
                 // Set POWER_LOSS alert.
+                // TODO: Debounce?
                 activeAlertsInterval.bPowerLoss = true;
+            }
+            else
+            {
+                activeAlertsInterval.bPowerLoss = false;
             }
 
             // POWER_RESTORE
@@ -242,14 +298,29 @@ void loop() {
                     activeAlertsInterval.bPowerRestore = true;
                 }
             }
+            else
+            {
+                activeAlertsInterval.bPowerRestore = false;
+            }
 
             // BATTERY_LOW
             if (environmentDataInterval.batteryCharge < fThreshBattLow) {
                 // Set BATTERY_LOW alert.
                 activeAlertsInterval.bBatteryLow = true;
             }
+            else
+            {
+                activeAlertsInterval.bBatteryLow = false;
+            }
 
             // HEARTBEAT
+            if ((Time.now() >= (lLastHeartbeatTime + HEARTBEAT_INTERNAL)) && (lLastHeartbeatTime != 0)) {
+                activeAlertsInterval.bHeartbeat = true;
+            }
+            else
+            {
+                activeAlertsInterval.bHeartbeat = false;
+            }
 
 
         // Reset Collect Flag
@@ -257,39 +328,132 @@ void loop() {
     }
 
 
-    // Process Alerts
+    // === PROCESS ALERTS ===
+    // NOTE: Alerts don't mute, for now.
 
+        // TEMP_LOW
+        if (activeAlertsInterval.bTempLow == true) {
+            // Publish Alert
+            publish_alert("TEMP_LOW");
 
-    /*
-    Serial.println("Time: ");
-    Serial.println(currentEnvironmentData.time);
-    Serial.println("Time Str: ");
-    Serial.println(currentEnvironmentData.timeString);
-    Serial.println("Time IsValid: ");
-    Serial.println(currentEnvironmentData.timeValid);
+            // Clear Alert
+            activeAlertsInterval.bTempLow = false;
+        }
 
-    Serial.println("Power Source: ");
-    Serial.println(currentEnvironmentData.powerSource);
-    Serial.println("Battery State: ");
-    Serial.println(currentEnvironmentData.batteryState);
-    Serial.println("Battery Charge: ");
-    Serial.println(currentEnvironmentData.batteryCharge);
+        // TEMP_HIGH
+        if (activeAlertsInterval.bTempHigh == true) {
+            // Publish Alert
+            publish_alert("TEMP_HIGH");
 
-    Serial.println("Temperature: ");
-    Serial.println(currentEnvironmentData.temperatureF);
-    Serial.println("Humidity: ");
-    Serial.println(currentEnvironmentData.humidity);
+            // Clear Alert
+            activeAlertsInterval.bTempHigh = false;
+        }
 
-    Serial.println("LightLevel: ");
-    Serial.println(currentEnvironmentData.lightLevel);
-    delay(10000);
-    */
+        // TEMP_DELTA
+        if (activeAlertsInterval.bTempDelta == true) {
+            // Publish Alert
+            publish_alert("TEMP_DELTA");
+
+            // Clear Alert
+            activeAlertsInterval.bTempDelta = false;
+        }
+
+        // TEMP_CLEAR
+        if (activeAlertsInterval.bTempClear == true) {
+            // Publish Alert
+            publish_alert("TEMP_CLEAR");
+
+            // Clear Alert
+            activeAlertsInterval.bTempClear = false;
+        }
+
+        // POWER_LOSS
+        if (activeAlertsInterval.bPowerLoss == true) {
+            // Publish Alert
+            publish_alert("POWER_LOSS");
+
+            // Clear Alert
+            activeAlertsInterval.bPowerLoss = false;
+        }
+
+        // POWER_RESTORE
+        if (activeAlertsInterval.bPowerRestore == true) {
+            // Publish Alert
+            publish_alert("POWER_RESTORE");
+
+            // Clear Alert
+            activeAlertsInterval.bPowerRestore = false;          
+        }
+
+        // BATTERY_LOW
+        if (activeAlertsInterval.bBatteryLow == true) {
+            // Publish Alert
+            publish_alert("BATTERY_LOW");
+
+            // Clear Alert
+            activeAlertsInterval.bBatteryLow = false;
+        }
+
+        // HEARTBEAT
+        if (activeAlertsInterval.bHeartbeat == true) {
+            // Publish Alert
+            publish_alert("HEARTBEAT");
+
+            // Clear Alert
+            activeAlertsInterval.bHeartbeat = false;
+        }
+
 
 }   // END loop
 
 
 // 
-void publish_alert(void) {
+int publish_alert(String alertType) {
+    // Variable Declarations
+    String body = "Cloud SMS Test";
+    String batteryState = battery_state_cast(environmentDataInterval.batteryState);
+    String powerSource = power_source_cast(environmentDataInterval.powerSource);
+
+    // Detect manual function calls.
+    if (alertType.length()  == 0) {
+        alertType = "DEBUG";
+    }
+
+    // Build & Format SMS Body
+    body = String::format("=== %s ===\nAlert: %s\nTemp: %.1fF\nHumidity: %.1f%%\nBatt: %.1f%%\nBatt State: %s\nPWR SRC: %s\nFW: %s\n%s\n", SECRET_LOCATION, alertType.c_str(), environmentDataInterval.temperatureF, environmentDataInterval.humidity, environmentDataInterval.batteryCharge, batteryState.c_str(), powerSource.c_str(), FW_VERSION, environmentDataInterval.timeString.c_str());
+
+
+    // Throttle Alert Publishing
+    delay(ALERT_THROTTLE_DELAY);
+
+    // JSON Writer Example: https://github.com/rickkas7/JsonParserGeneratorRK/blob/master/examples/2-generator/2-generator-JsonParserGeneratorRK.cpp
+    // {{Moustache}} templates used to populate To/From/Body form fields in Twilio API call.
+    JsonWriterStatic<256> jwA;
+    JsonWriterStatic<256> jwB;
+    {
+        JsonWriterAutoObject obj(&jwA);
+
+        jwA.insertKeyValue("SMS_TO", SECRET_SMS_TO_A);
+        jwA.insertKeyValue("SMS_FROM", SECRET_SMS_FROM);
+        jwA.insertKeyValue("SMS_BODY", body);
+    }
+
+    {
+        JsonWriterAutoObject obj(&jwB);
+
+        jwB.insertKeyValue("SMS_TO", "");
+        jwB.insertKeyValue("SMS_FROM", SECRET_SMS_FROM);
+        jwB.insertKeyValue("SMS_BODY", body);
+    }
+
+    // Publish Alert Data
+    Particle.publish("twilio_sms", jwA.getBuffer());
+    delay(ALERT_THROTTLE_DELAY);
+    Particle.publish("twilio_sms", jwB.getBuffer());
+    delay(ALERT_THROTTLE_DELAY);
+    
+    // Return Length of Alert Body
+    return body.length();
 
 }   // END publish_alert
 
@@ -301,7 +465,7 @@ void timer_interval_environment_data(void) {
 
 
 
-void collect_environment_data(void) {
+int collect_environment_data(String junk) {
     // Local Variable Declarations
     struct environmentData environmentDataReading;
 
@@ -326,6 +490,9 @@ void collect_environment_data(void) {
     environmentDataLastInterval = environmentDataInterval;
     environmentDataInterval = environmentDataReading;
 
+    // Return Current Temperature (cast to int)
+    return (int)environmentDataReading.temperatureF;
+
 }   // END collect_environment_data
 
 
@@ -337,27 +504,27 @@ String power_source_cast(int intPowerSource) {
 
     switch (intPowerSource) {
         case POWER_SOURCE_UNKNOWN:      // 0
-        strPowerSource = "POWER_SOURCE_UNKNOWN";
+        strPowerSource = "UNKNOWN";
         break;
 
         case POWER_SOURCE_VIN:          // 1
-        strPowerSource = "POWER_SOURCE_VIN";
+        strPowerSource = "VIN";
         break;
 
         case POWER_SOURCE_USB_HOST:     // 2
-        strPowerSource = "POWER_SOURCE_USB_HOST";
+        strPowerSource = "USB_HOST";
         break;
 
         case POWER_SOURCE_USB_ADAPTER:  // 3
-        strPowerSource = "POWER_SOURCE_USB_ADAPTER";
+        strPowerSource = "USB_ADAPTER";
         break;
 
         case POWER_SOURCE_USB_OTG:      // 4
-        strPowerSource = "POWER_SOURCE_USB_OTG";
+        strPowerSource = "USB_OTG";
         break;
 
         case POWER_SOURCE_BATTERY:      // 5
-        strPowerSource = "POWER_SOURCE_BATTERY";
+        strPowerSource = "BATTERY";
         break;
     }
 
@@ -372,31 +539,31 @@ String battery_state_cast(int intBatteryState) {
 
     switch (intBatteryState) {
         case BATTERY_STATE_UNKNOWN:         // 0
-        strBatteryState = "BATTERY_STATE_UNKNOWN";
+        strBatteryState = "UNKNOWN";
         break;
 
         case BATTERY_STATE_NOT_CHARGING:    // 1
-        strBatteryState = "BATTERY_STATE_NOT_CHARGING";
+        strBatteryState = "NOT_CHARGING";
         break;
 
         case BATTERY_STATE_CHARGING:        // 2
-        strBatteryState = "BATTERY_STATE_CHARGING";
+        strBatteryState = "CHARGING";
         break;
 
         case BATTERY_STATE_CHARGED:         // 3
-        strBatteryState = "BATTERY_STATE_CHARGED";
+        strBatteryState = "CHARGED";
         break;
 
         case BATTERY_STATE_DISCHARGING:     // 4
-        strBatteryState = "BATTERY_STATE_DISCHARGING";
+        strBatteryState = "DISCHARGING";
         break;
 
         case BATTERY_STATE_FAULT:           // 5
-        strBatteryState = "BATTERY_STATE_FAULT";
+        strBatteryState = "FAULT";
         break;
 
         case BATTERY_STATE_DISCONNECTED:    // 6
-        strBatteryState = "BATTERY_STATE_DISCONNECTED";
+        strBatteryState = "DISCONNECTED";
         break;
     }
 

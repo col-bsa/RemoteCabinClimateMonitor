@@ -407,7 +407,7 @@ int publish_alert(String alertType) {
     }
 
     // Build & Format SMS Body
-    body = String::format("=== %s ===\nAlert: %s\nTemp: %.1fF\nHumidity: %.1f%%\nBatt: %.1f%%\nBatt State: %s\nPWR SRC: %s\nFW: %s\n%s\n", SECRET_LOCATION, alertType.c_str(), environmentDataInterval.temperatureF, environmentDataInterval.humidity, environmentDataInterval.batteryCharge, batteryState.c_str(), powerSource.c_str(), FW_VERSION, environmentDataInterval.timeString.c_str());
+    body = String::format("[ %s ]\nAlert: %s\nTemp: %.1fF\nHumidity: %.1f%%\nBatt: %.1f%%\nBatt State: %s\nPWR SRC: %s\nFW: %s\n%s\n", SECRET_LOCATION, alertType.c_str(), environmentDataInterval.temperatureF, environmentDataInterval.humidity, environmentDataInterval.batteryCharge, batteryState.c_str(), powerSource.c_str(), FW_VERSION, environmentDataInterval.timeString.c_str());
 
 
     // Throttle Alert Publishing

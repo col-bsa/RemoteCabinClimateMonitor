@@ -7,7 +7,7 @@
 
 
 // === STATIC CONFIGURATION ===
-#define FW_VERSION      	"0.1.0"
+#define FW_VERSION      	"0.1.3"
 
 // Timer; not currently in use.
 #define INTERVAL_ENVIRONMENT_DATA_DELAY_MS      15000     // 15 Seconds 
@@ -18,7 +18,7 @@
 #define THRESH_BATT_LOW     25
 
 #define INTERNAL_COLLECTION_INTERVAL    (60*15)            // 15 Minutes
-#define HEARTBEAT_INTERNAL              (60*60*24)         // 1 Day
+#define HEARTBEAT_INTERVAL              (60*60*24)         // 1 Day
 
 #define ALERT_THROTTLE_DELAY            1010               // ms
 
@@ -300,8 +300,9 @@ void loop() {
             }
 
             // HEARTBEAT
-            if ((Time.now() >= (lLastHeartbeatTime + HEARTBEAT_INTERNAL)) && (lLastHeartbeatTime != 0)) {
+            if ((Time.now() >= (lLastHeartbeatTime + HEARTBEAT_INTERVAL))) {
                 activeAlertsInterval.bHeartbeat = true;
+                lLastHeartbeatTime = Time.now();
             }
             else
             {

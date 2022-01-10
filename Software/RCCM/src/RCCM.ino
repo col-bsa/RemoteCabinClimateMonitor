@@ -7,7 +7,7 @@
 
 
 // === STATIC CONFIGURATION ===
-#define FW_VERSION      	"0.1.3"
+#define FW_VERSION      	"0.1.4"
 
 // Timer; not currently in use.
 #define INTERVAL_ENVIRONMENT_DATA_DELAY_MS      15000     // 15 Seconds 
@@ -428,7 +428,7 @@ int publish_alert(String alertType) {
     {
         JsonWriterAutoObject obj(&jwB);
 
-        jwB.insertKeyValue("SMS_TO", "");
+        jwB.insertKeyValue("SMS_TO", SECRET_SMS_TO_B);
         jwB.insertKeyValue("SMS_FROM", SECRET_SMS_FROM);
         jwB.insertKeyValue("SMS_BODY", body);
     }
